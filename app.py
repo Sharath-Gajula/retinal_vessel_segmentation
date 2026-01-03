@@ -1,7 +1,6 @@
 import streamlit as st
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 
 # =========================================
 # PAGE CONFIG
@@ -76,11 +75,9 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    # Read image
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-    # Process image
     original, enhanced = preprocess_image(img)
     vessel_mask = segment_vessels(enhanced)
 
@@ -94,15 +91,15 @@ if uploaded_file is not None:
 
     with col1:
         st.subheader("Original Image")
-        st.image(cv2.cvtColor(original, cv2.COLOR_BGR2RGB), use_column_width=True)
+        st.image(cv2.cvtColor(original, cv2.COLOR_BGR2RGB), width=350)
 
     with col2:
         st.subheader("Enhanced Image (CLAHE)")
-        st.image(enhanced, clamp=True, use_column_width=True)
+        st.image(enhanced, clamp=True, width=350)
 
     with col3:
         st.subheader("Vessel Segmentation")
-        st.image(vessel_mask, clamp=True, use_column_width=True)
+        st.image(vessel_mask, clamp=True, width=350)
 
     st.markdown("---")
 
