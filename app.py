@@ -1,6 +1,7 @@
 import streamlit as st
-import cv2
 import numpy as np
+from skimage import color, exposure, filters, morphology, transform
+from scipy.ndimage import distance_transform_edt
 
 # =========================================
 # PAGE CONFIG
@@ -17,27 +18,26 @@ st.write("Upload a retinal fundus image to analyze vessel severity.")
 # FUNCTIONS
 # =========================================
 def preprocess_image(img):
-    img = cv2.resize(img, (512, 512))
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # Resize
+    img = transform.resize(img, (512, 512), preserve_range=True).astype(np.uint8)
 
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(gray)
+    # Convert to grayscale
+    gray = color.rgb2gray(img)
+
+    # Contrast enhancement (CLAHE equivalent)
+    enhanced = exposure.equalize_adapthist(gray, clip_limit=0.02)
 
     return img, enhanced
 
 
 def segment_vessels(enhanced):
-    vessel_mask = cv2.adaptiveThreshold(
-        enhanced,
-        255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV,
-        15,
-        3
-    )
+    # Adaptive thresholding
+    thresh = filters.threshold_local(enhanced, block_size=15, offset=-0.01)
+    vessel_mask = enhanced < thresh
 
-    kernel = np.ones((3, 3), np.uint8)
-    vessel_mask = cv2.morphologyEx(vessel_mask, cv2.MORPH_OPEN, kernel)
+    # Morphological cleaning
+    vessel_mask = morphology.remove_small_objects(vessel_mask, min_size=50)
+    vessel_mask = morphology.binary_opening(vessel_mask, morphology.disk(1))
 
     return vessel_mask
 
@@ -47,11 +47,11 @@ def calculate_metrics(vessel_mask):
     total_pixels = vessel_mask.size
     density = (vessel_pixels / total_pixels) * 100
 
-    binary = np.where(vessel_mask > 0, 255, 0).astype(np.uint8)
-    dist_transform = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
-    thickness = 2 * np.mean(dist_transform[binary == 255])
+    # Thickness estimation
+    distance = distance_transform_edt(vessel_mask)
+    thickness = 2 * np.mean(distance[vessel_mask])
 
-    thickness_score = min((thickness / 10) * 100, 100)
+    thickness_score = min(thickness * 10, 100)
     severity_index = (0.7 * density) + (0.3 * thickness_score)
 
     return density, thickness, severity_index
@@ -75,8 +75,10 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    img = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    img = transform.resize(
+        np.reshape(img, (-1, 1)), (512, 512, 3), preserve_range=True
+    ).astype(np.uint8)
 
     original, enhanced = preprocess_image(img)
     vessel_mask = segment_vessels(enhanced)
@@ -91,10 +93,10 @@ if uploaded_file is not None:
 
     with col1:
         st.subheader("Original Image")
-        st.image(cv2.cvtColor(original, cv2.COLOR_BGR2RGB), width=350)
+        st.image(original, width=350)
 
     with col2:
-        st.subheader("Enhanced Image (CLAHE)")
+        st.subheader("Enhanced Image")
         st.image(enhanced, clamp=True, width=350)
 
     with col3:
