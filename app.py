@@ -1,5 +1,6 @@
 import streamlit as st
 import numpy as np
+from PIL import Image
 from skimage import color, exposure, filters, morphology, transform
 from scipy.ndimage import distance_transform_edt
 
@@ -18,27 +19,18 @@ st.write("Upload a retinal fundus image to analyze vessel severity.")
 # FUNCTIONS
 # =========================================
 def preprocess_image(img):
-    # Resize
     img = transform.resize(img, (512, 512), preserve_range=True).astype(np.uint8)
-
-    # Convert to grayscale
     gray = color.rgb2gray(img)
-
-    # Contrast enhancement (CLAHE equivalent)
     enhanced = exposure.equalize_adapthist(gray, clip_limit=0.02)
-
     return img, enhanced
 
 
 def segment_vessels(enhanced):
-    # Adaptive thresholding
     thresh = filters.threshold_local(enhanced, block_size=15, offset=-0.01)
     vessel_mask = enhanced < thresh
-
-    # Morphological cleaning
     vessel_mask = morphology.remove_small_objects(vessel_mask, min_size=50)
     vessel_mask = morphology.binary_opening(vessel_mask, morphology.disk(1))
-
+    vessel_mask = morphology.binary_dilation(vessel_mask, morphology.disk(1))
     return vessel_mask
 
 
@@ -47,7 +39,6 @@ def calculate_metrics(vessel_mask):
     total_pixels = vessel_mask.size
     density = (vessel_pixels / total_pixels) * 100
 
-    # Thickness estimation
     distance = distance_transform_edt(vessel_mask)
     thickness = 2 * np.mean(distance[vessel_mask])
 
@@ -75,10 +66,8 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    img = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    img = transform.resize(
-        np.reshape(img, (-1, 1)), (512, 512, 3), preserve_range=True
-    ).astype(np.uint8)
+    image = Image.open(uploaded_file).convert("RGB")
+    img = np.array(image)
 
     original, enhanced = preprocess_image(img)
     vessel_mask = segment_vessels(enhanced)
@@ -105,17 +94,12 @@ if uploaded_file is not None:
 
     st.markdown("---")
 
-    # =========================================
-    # METRICS
-    # =========================================
     col4, col5, col6, col7 = st.columns(4)
-
     col4.metric("Vessel Density (%)", f"{density:.2f}")
     col5.metric("Avg Thickness", f"{thickness:.2f}")
     col6.metric("Severity Index", f"{severity_index:.2f}")
     col7.metric("Severity Level", label)
 
     st.success("Analysis completed successfully ✅")
-
 else:
     st.info("Please upload a retinal image to begin.")
