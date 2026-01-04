@@ -19,18 +19,31 @@ st.write("Upload a retinal fundus image to analyze vessel severity.")
 # FUNCTIONS
 # =========================================
 def preprocess_image(img):
+    # Resize image
     img = transform.resize(img, (512, 512), preserve_range=True).astype(np.uint8)
+
+    # Convert to grayscale (0–1)
     gray = color.rgb2gray(img)
-    enhanced = exposure.equalize_adapthist(gray, clip_limit=0.02)
+
+    # Convert to uint8 (0–255)
+    gray_uint8 = (gray * 255).astype(np.uint8)
+
+    # Contrast enhancement (CLAHE-like)
+    enhanced = exposure.equalize_adapthist(gray_uint8, clip_limit=0.03)
+    enhanced = (enhanced * 255).astype(np.uint8)
+
     return img, enhanced
 
 
 def segment_vessels(enhanced):
-    thresh = filters.threshold_local(enhanced, block_size=15, offset=-0.01)
-    vessel_mask = enhanced < thresh
-    vessel_mask = morphology.remove_small_objects(vessel_mask, min_size=50)
+    # Otsu thresholding (stable for retina images)
+    thresh_val = filters.threshold_otsu(enhanced)
+    vessel_mask = enhanced < thresh_val
+
+    # Morphological cleanup (light)
     vessel_mask = morphology.binary_opening(vessel_mask, morphology.disk(1))
     vessel_mask = morphology.binary_dilation(vessel_mask, morphology.disk(1))
+
     return vessel_mask
 
 
@@ -66,6 +79,7 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
+    # Proper image decoding (CRITICAL FIX)
     image = Image.open(uploaded_file).convert("RGB")
     img = np.array(image)
 
@@ -90,16 +104,21 @@ if uploaded_file is not None:
 
     with col3:
         st.subheader("Vessel Segmentation")
-        st.image(vessel_mask, clamp=True, width=350)
+        st.image(vessel_mask.astype(np.uint8) * 255, clamp=True, width=350)
 
     st.markdown("---")
 
+    # =========================================
+    # METRICS
+    # =========================================
     col4, col5, col6, col7 = st.columns(4)
+
     col4.metric("Vessel Density (%)", f"{density:.2f}")
     col5.metric("Avg Thickness", f"{thickness:.2f}")
     col6.metric("Severity Index", f"{severity_index:.2f}")
     col7.metric("Severity Level", label)
 
     st.success("Analysis completed successfully ✅")
+
 else:
     st.info("Please upload a retinal image to begin.")
